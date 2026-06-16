@@ -1,4 +1,4 @@
- """
+"""
 XAU/USD Fibonacci Signal Bot v3
 Zone 70.5%-78.6% + FVG + Order Block detection
 Analyse M5 + H1 + H4
