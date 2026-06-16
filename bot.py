@@ -19,9 +19,9 @@ CHECK_INTERVAL   = int(os.getenv("CHECK_INTERVAL", "300"))
 TWELVE_API_KEY   = os.getenv("TWELVE_API_KEY")
 
 SYMBOL = "XAU/USD"
-FIB_LEVELS = [0.382, 0.500, 0.618, 0.786]
-FIB_LABELS = {0.382: "38.2%", 0.500: "50%", 0.618: "61.8% 🔑", 0.786: "78.6%"}
-TOLERANCE_PCT = 0.20
+FIB_LEVELS = [0.705, 0.786]
+FIB_LABELS = {0.705: "70.5%", 0.786: "78.6%"}
+TOLERANCE_PCT = 0.50
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger(__name__)
