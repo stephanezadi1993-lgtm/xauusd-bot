@@ -1,7 +1,7 @@
-"""
-XAU/USD Fibonacci Signal Bot v2
-Vraies bougies OHLC via Twelve Data API
-Analyse M5 + confirmation H1 + H4
+ """
+XAU/USD Fibonacci Signal Bot v3
+Zone 70.5%-78.6% + FVG + Order Block detection
+Analyse M5 + H1 + H4
 """
 
 import os
@@ -87,6 +87,45 @@ def get_h1_structure(candles):
     bull = sum(1 for c in candles[:3] if c["close"] > c["open"])
     return "bull" if bull >= 2 else "bear"
 
+def detect_fvg(candles, direction, fib_zone_high, fib_zone_low):
+    fvg_list = []
+    if len(candles) < 3:
+        return fvg_list
+    for i in range(len(candles) - 2):
+        c0 = candles[i + 2]
+        c1 = candles[i + 1]
+        c2 = candles[i]
+        if direction == "bull":
+            if c2["low"] > c0["high"]:
+                fvg_mid = (c2["low"] + c0["high"]) / 2
+                if fib_zone_low <= fvg_mid <= fib_zone_high:
+                    fvg_list.append({"type": "Bull FVG", "top": round(c2["low"], 2), "bot": round(c0["high"], 2), "mid": round(fvg_mid, 2), "datetime": c1["datetime"]})
+        else:
+            if c2["high"] < c0["low"]:
+                fvg_mid = (c2["high"] + c0["low"]) / 2
+                if fib_zone_low <= fvg_mid <= fib_zone_high:
+                    fvg_list.append({"type": "Bear FVG", "top": round(c0["low"], 2), "bot": round(c2["high"], 2), "mid": round(fvg_mid, 2), "datetime": c1["datetime"]})
+    return fvg_list[-3:] if fvg_list else []
+
+def detect_orderblock(candles, direction, fib_zone_high, fib_zone_low):
+    ob_list = []
+    if len(candles) < 4:
+        return ob_list
+    for i in range(1, len(candles) - 2):
+        c_ob   = candles[i]
+        c_next = candles[i - 1]
+        ob_size = abs(c_ob["close"] - c_ob["open"])
+        if ob_size < 0.5:
+            continue
+        ob_in_zone = fib_zone_low <= c_ob["low"] <= fib_zone_high or fib_zone_low <= c_ob["high"] <= fib_zone_high
+        if direction == "bull":
+            if c_ob["close"] < c_ob["open"] and c_next["close"] > c_ob["high"] and ob_in_zone:
+                ob_list.append({"type": "Bull OB", "top": round(c_ob["high"], 2), "bot": round(c_ob["low"], 2), "mid": round((c_ob["high"] + c_ob["low"]) / 2, 2), "datetime": c_ob["datetime"]})
+        else:
+            if c_ob["close"] > c_ob["open"] and c_next["close"] < c_ob["low"] and ob_in_zone:
+                ob_list.append({"type": "Bear OB", "top": round(c_ob["high"], 2), "bot": round(c_ob["low"], 2), "mid": round((c_ob["high"] + c_ob["low"]) / 2, 2), "datetime": c_ob["datetime"]})
+    return ob_list[-2:] if ob_list else []
+
 def detect_setup(price, m5, h1, h4):
     global last_signal
     swing = detect_swing(m5)
@@ -96,42 +135,59 @@ def detect_setup(price, m5, h1, h4):
     h4_trend  = get_h4_trend(h4)
     h1_struct = get_h1_structure(h1)
     direction = h4_trend if h4_trend != "neutral" else ("bull" if m5[0]["close"] > m5[-1]["close"] else "bear")
-    fib_levels = {}
-    for ratio in FIB_LEVELS:
-        fib_levels[ratio] = round(high - rng * ratio, 2) if direction == "bull" else round(low + rng * ratio, 2)
     tolerance = rng * TOLERANCE_PCT / 100
-    for ratio, level in fib_levels.items():
-        if abs(price - level) <= tolerance:
-            if ratio in last_signal and abs(last_signal[ratio] - price) < 2.0:
-                return None
-            sl_d, tp1_d, tp2_d = rng * 0.05, rng * 0.382, rng * 0.618
-            if direction == "bull":
-                sl, tp1, tp2, bias, emoji = round(level - sl_d, 2), round(level + tp1_d, 2), round(level + tp2_d, 2), "BUY", "🟢"
-            else:
-                sl, tp1, tp2, bias, emoji = round(level + sl_d, 2), round(level - tp1_d, 2), round(level - tp2_d, 2), "SELL", "🔴"
-            last_signal[ratio] = price
-            return {"direction": direction, "bias": bias, "emoji": emoji, "fib_label": FIB_LABELS[ratio],
-                    "price": round(price, 2), "entry": round(level, 2), "sl": sl, "tp1": tp1, "tp2": tp2,
-                    "rr1": round(tp1_d/sl_d, 1), "rr2": round(tp2_d/sl_d, 1),
-                    "swing_high": round(high, 2), "swing_low": round(low, 2),
-                    "h4_trend": h4_trend.upper(), "h1_struct": h1_struct.upper()}
+    for ratio in FIB_LEVELS:
+        level = round(high - rng * ratio, 2) if direction == "bull" else round(low + rng * ratio, 2)
+        if abs(price - level) > tolerance:
+            continue
+        if ratio in last_signal and abs(last_signal[ratio] - price) < 2.0:
+            continue
+        level_705 = round(high - rng * 0.705, 2) if direction == "bull" else round(low + rng * 0.705, 2)
+        level_786 = round(high - rng * 0.786, 2) if direction == "bull" else round(low + rng * 0.786, 2)
+        fib_zone_high = max(level_705, level_786)
+        fib_zone_low  = min(level_705, level_786)
+        fvg_list = detect_fvg(m5, direction, fib_zone_high, fib_zone_low)
+        ob_list  = detect_orderblock(m5, direction, fib_zone_high, fib_zone_low)
+        confluence_score = (1 if fvg_list else 0) + (1 if ob_list else 0)
+        sl_dist, tp1_dist, tp2_dist = rng * 0.05, rng * 0.382, rng * 0.618
+        if direction == "bull":
+            sl, tp1, tp2, bias, emoji = round(level - sl_dist, 2), round(level + tp1_dist, 2), round(level + tp2_dist, 2), "BUY", "🟢"
+        else:
+            sl, tp1, tp2, bias, emoji = round(level + sl_dist, 2), round(level - tp1_dist, 2), round(level - tp2_dist, 2), "SELL", "🔴"
+        last_signal[ratio] = price
+        return {"direction": direction, "bias": bias, "emoji": emoji, "fib_label": FIB_LABELS[ratio], "price": round(price, 2), "entry": round(level, 2), "sl": sl, "tp1": tp1, "tp2": tp2, "rr1": round(tp1_dist/sl_dist, 1), "rr2": round(tp2_dist/sl_dist, 1), "swing_high": round(high, 2), "swing_low": round(low, 2), "h4_trend": h4_trend.upper(), "h1_struct": h1_struct.upper(), "fvg_list": fvg_list, "ob_list": ob_list, "confluence": confluence_score, "fib_zone_high": fib_zone_high, "fib_zone_low": fib_zone_low}
     return None
 
 def format_signal(s, session):
     kz = f"\n⚡ <b>Killzone:</b> {session['killzone']}" if session["killzone"] else ""
     dl = "LONG" if s["direction"] == "bull" else "SHORT"
+    stars = "⭐" * s["confluence"] if s["confluence"] > 0 else "—"
+    conf_label = {0: "Signal simple", 1: "Bonne confluence", 2: "Confluence maximale ✅"}.get(s["confluence"], "")
+    fvg_text = ""
+    if s["fvg_list"]:
+        fvg = s["fvg_list"][-1]
+        fvg_text = f"\n├ {fvg['type']}: <code>{fvg['bot']}</code> – <code>{fvg['top']}</code>"
+    ob_text = ""
+    if s["ob_list"]:
+        ob = s["ob_list"][-1]
+        ob_text = f"\n├ {ob['type']}: <code>{ob['bot']}</code> – <code>{ob['top']}</code>"
     return f"""{s['emoji']} <b>SIGNAL XAU/USD — {s['bias']}</b>
 ━━━━━━━━━━━━━━━━━━━━
 🕐 <b>Heure:</b> {session['time_gmt']}
 📊 <b>Session:</b> {session['sessions']}{kz}
 
-📐 <b>Fibonacci {s['fib_label']}</b>
+📐 <b>Zone Fibonacci {s['fib_label']}</b>
+├ Zone: <code>{s['fib_zone_low']}</code> – <code>{s['fib_zone_high']}</code>
 ├ Swing High: <code>{s['swing_high']}</code>
 └ Swing Low:  <code>{s['swing_low']}</code>
 
 📈 <b>Multi-TF</b>
 ├ H4: <b>{s['h4_trend']}</b>
 └ H1: <b>{s['h1_struct']}</b>
+
+🔍 <b>Confluence SMC</b> {stars}
+├ {conf_label}{fvg_text}{ob_text}
+└ Zone 70.5%–78.6% ✅
 
 🎯 <b>ORDRE {dl}</b>
 ├ Entrée:    <code>{s['entry']}</code>
@@ -140,11 +196,11 @@ def format_signal(s, session):
 └ TP 2:      <code>{s['tp2']}</code> ✅ R:R 1:{s['rr2']}
 
 ⚠️ <i>Confirme sur MT4. Risque max 1%.</i>
-🤖 XAU/USD Bot v2 · M5+H1+H4"""
+🤖 XAU/USD Bot v3 · SMC+FVG+OB"""
 
 def main():
-    log.info("Bot v2 démarré")
-    send_telegram("🤖 <b>XAU/USD Fibonacci Bot v2</b>\n📊 Analyse M5 + H1 + H4\n⏱ Scan toutes les 5 min")
+    log.info("Bot v3 démarré")
+    send_telegram("🤖 <b>XAU/USD Bot v3 démarré</b>\n🔍 Zone 70.5%-78.6% + FVG + OB\n⏱ Scan toutes les 5 min")
     while True:
         try:
             m5 = get_candles("5min", 60)
