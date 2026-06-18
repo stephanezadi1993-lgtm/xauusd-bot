@@ -12,8 +12,8 @@ from telegram.constants import ParseMode
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
-CHAT_ID = os.getenv("CHAT_ID", "")
+TELEGRAM_TOKEN = os.getenv("SYNTHETIC_TOKEN", "")
+CHAT_ID = os.getenv("SYNTHETIC_CHAT_ID", "")
 DERIV_WS_URL = "wss://ws.binaryws.com/websockets/v3?app_id=1089"
 
 INSTRUMENTS = {
