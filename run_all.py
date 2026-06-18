@@ -6,7 +6,13 @@ def run_xau():
     subprocess.Popen([sys.executable, "-u", "bot.py"]).wait()
 
 def run_synthetic():
-    subprocess.Popen([sys.executable, "-u", "bot_synthetic.py"]).wait()
+    result = subprocess.run(
+        [sys.executable, "-u", "bot_synthetic.py"],
+        capture_output=False,
+        stderr=sys.stderr,
+        stdout=sys.stdout
+    )
+    print(f"bot_synthetic exited with code {result.returncode}", flush=True)
 
 t1 = threading.Thread(target=run_xau, daemon=False)
 t2 = threading.Thread(target=run_synthetic, daemon=False)
