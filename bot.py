@@ -1,7 +1,7 @@
 """
 Multi-Asset Signal Bot v5
 XAU/USD + NAS100 + Tous les Synthetics Deriv
-Zone 70.5%-78.6% + FVG + OB
+Zone 78.6% + FVG + OB
 """
 import os
 import time
