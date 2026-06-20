@@ -54,8 +54,8 @@ DERIV_ASSETS = {
     "STEP":      {"symbol": "stpindx",   "min_range": 0.1,  "emoji": "📶", "spike_filter": False},
 }
 
-FIB_LEVELS = [0.705, 0.786]
-FIB_LABELS = {0.705: "70.5%", 0.786: "78.6%"}
+FIB_LEVELS = [0.786]
+FIB_LABELS = {0.786: "78.6%"}
 TOLERANCE_PCT = 0.50
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
