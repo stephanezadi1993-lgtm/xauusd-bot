@@ -1,6 +1,6 @@
 """
 Multi-Asset Signal Bot v5
-XAU/USD + NAS100 + Tous les Synthetics Deriv
+XAU/USD + NAS100 + BTC/USD + Tous les Synthetics Deriv
 Zone 78.6% + FVG + OB
 """
 import os
@@ -23,6 +23,7 @@ DERIV_TOKEN = os.getenv("DERIV_TOKEN")
 TD_ASSETS = {
     "XAU/USD": {"symbol": "XAU/USD", "sessions": ["london", "ny"], "min_range": 3.0},
     "NAS100":  {"symbol": "NDX",      "sessions": ["ny"],           "min_range": 50.0},
+    "BTC/USD": {"symbol": "BTC/USD",  "sessions": ["24h"],          "min_range": 200.0},
 }
 
 DERIV_ASSETS = {
@@ -137,6 +138,8 @@ def get_session_info():
     return {"active": active, "sessions": " + ".join(labels[s] for s in active) if active else "Asia", "killzone": kz, "time_gmt": now.strftime("%H:%M GMT")}
 
 def is_market_open(sessions, session_info):
+    if "24h" in sessions:
+        return True
     return any(s in session_info["active"] for s in sessions)
 
 def detect_swing(candles, min_range):
@@ -203,9 +206,8 @@ def detect_setup(asset_name, price, m5, h1, h4, min_range, emoji="📊"):
         if abs(price - level) > tol: continue
         key = f"{asset_name}_{ratio}"
         if key in last_signal and abs(last_signal[key] - price) < (min_range * 0.05): continue
-        l705 = round(high - rng * 0.705, 4) if direction == "bull" else round(low + rng * 0.705, 4)
         l786 = round(high - rng * 0.786, 4) if direction == "bull" else round(low + rng * 0.786, 4)
-        zh, zl = max(l705, l786), min(l705, l786)
+        zh, zl = l786 + (rng * 0.01), l786 - (rng * 0.01)
         fvgs = detect_fvg(m5, direction, zh, zl)
         obs = detect_ob(m5, direction, zh, zl)
         conf = (1 if fvgs else 0) + (1 if obs else 0)
@@ -215,7 +217,7 @@ def detect_setup(asset_name, price, m5, h1, h4, min_range, emoji="📊"):
         else:
             sl, tp1, tp2, bias, sig_emoji = round(level+sd,4), round(level-t1d,4), round(level-t2d,4), "SELL", "🔴"
         last_signal[key] = price
-        return {"asset": asset_name, "asset_emoji": emoji, "direction": direction, "bias": bias, "emoji": sig_emoji, "fib_label": FIB_LABELS[ratio], "price": round(price,4), "entry": round(level,4), "sl": sl, "tp1": tp1, "tp2": tp2, "rr1": round(t1d/sd,1), "rr2": round(t2d/sd,1), "swing_high": round(high,4), "swing_low": round(low,4), "h4": direction.upper(), "h1": h1s.upper(), "fvgs": fvgs, "obs": obs, "conf": conf, "zh": zh, "zl": zl}
+        return {"asset": asset_name, "asset_emoji": emoji, "direction": direction, "bias": bias, "emoji": sig_emoji, "fib_label": FIB_LABELS[ratio], "price": round(price,4), "entry": round(level,4), "sl": sl, "tp1": tp1, "tp2": tp2, "rr1": round(t1d/sd,1), "rr2": round(t2d/sd,1), "swing_high": round(high,4), "swing_low": round(low,4), "h4": direction.upper(), "h1": h1s.upper(), "fvgs": fvgs, "obs": obs, "conf": conf, "zh": round(zh,4), "zl": round(zl,4)}
     return None
 
 def format_signal(s, sess):
@@ -241,7 +243,7 @@ def format_signal(s, sess):
 
 🔍 <b>Confluence SMC</b> {stars}
 ├ {cl}{fvg_txt}{ob_txt}
-└ Zone 70.5%–78.6% ✅
+└ Zone 78.6% ✅
 
 🎯 <b>ORDRE {dl}</b>
 ├ Entrée: <code>{s['entry']}</code>
@@ -250,11 +252,11 @@ def format_signal(s, sess):
 └ TP2: <code>{s['tp2']}</code> ✅ R:R 1:{s['rr2']}
 
 ⚠️ <i>Confirme avant d'entrer. Max 1% risque.</i>
-🤖 Bot v5 · XAU+NAS+Synthetics"""
+🤖 Bot v5 · XAU+NAS+BTC+Synthetics"""
 
 def main():
     log.info("Bot v5 start")
-    send_telegram("🤖 <b>Multi-Asset Bot v5</b>\n🥇 XAU/USD — London + NY\n💻 NAS100 — NY\n🔵 V10/V25/V50/V75/V100\n🔵 V10(1s)/V25(1s)/V50(1s)/V75(1s)/V100(1s)\n🚀 BOOM 300/500/600/900/1000\n💥 CRASH 300/500/600/900/1000\n⚡ J10/J25/J50/J75/J100\n📶 Step Index\n🔍 Zone 70.5%-78.6% + FVG + OB\n⏱ Scan toutes les 5 min")
+    send_telegram("🤖 <b>Multi-Asset Bot v5</b>\n🥇 XAU/USD — London + NY\n💻 NAS100 — NY\n₿ BTC/USD — 24h/24\n🔵 V10/V25/V50/V75/V100\n🔵 V10(1s)/V25(1s)/V50(1s)/V75(1s)/V100(1s)\n🚀 BOOM 300/500/600/900/1000\n💥 CRASH 300/500/600/900/1000\n⚡ J10/J25/J50/J75/J100\n📶 Step Index\n🔍 Zone 78.6% + FVG + OB\n⏱ Scan toutes les 5 min")
     while True:
         try:
             sess = get_session_info()
@@ -269,7 +271,7 @@ def main():
                 h4 = get_candles_td(cfg["symbol"], "4h", 20)
                 if not m5: continue
                 price = m5[0]["close"]
-                emoji = "🥇" if asset_name == "XAU/USD" else "💻"
+                emoji = "🥇" if asset_name == "XAU/USD" else ("💻" if asset_name == "NAS100" else "₿")
                 setup = detect_setup(asset_name, price, m5, h1 or [], h4 or [], cfg["min_range"], emoji)
                 if setup:
                     send_telegram(format_signal(setup, sess))
