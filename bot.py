@@ -1,6 +1,6 @@
 """
 Multi-Asset Signal Bot v5
-XAU/USD + NAS100 + BTC/USD + Tous les Synthetics Deriv
+XAU/USD + NAS100 + BTC/USD + US30
 Zone 78.6% + FVG + OB
 """
 import os
@@ -18,41 +18,12 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "300"))
 TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
-DERIV_TOKEN = os.getenv("DERIV_TOKEN")
 
 TD_ASSETS = {
     "XAU/USD": {"symbol": "XAU/USD", "sessions": ["london", "ny"], "min_range": 3.0},
     "NAS100":  {"symbol": "NDX",      "sessions": ["ny"],           "min_range": 50.0},
     "BTC/USD": {"symbol": "BTC/USD",  "sessions": ["24h"],          "min_range": 200.0},
-}
-
-DERIV_ASSETS = {
-    "V10":       {"symbol": "R_10",      "min_range": 0.3,  "emoji": "🔵", "spike_filter": False},
-    "V25":       {"symbol": "R_25",      "min_range": 0.8,  "emoji": "🟣", "spike_filter": False},
-    "V50":       {"symbol": "R_50",      "min_range": 1.5,  "emoji": "🟡", "spike_filter": False},
-    "V75":       {"symbol": "R_75",      "min_range": 3.0,  "emoji": "🟠", "spike_filter": False},
-    "V100":      {"symbol": "R_100",     "min_range": 5.0,  "emoji": "🔴", "spike_filter": False},
-    "V10(1s)":   {"symbol": "1HZ10V",   "min_range": 0.3,  "emoji": "🔵", "spike_filter": False},
-    "V25(1s)":   {"symbol": "1HZ25V",   "min_range": 0.8,  "emoji": "🟣", "spike_filter": False},
-    "V50(1s)":   {"symbol": "1HZ50V",   "min_range": 1.5,  "emoji": "🟡", "spike_filter": False},
-    "V75(1s)":   {"symbol": "1HZ75V",   "min_range": 3.0,  "emoji": "🟠", "spike_filter": False},
-    "V100(1s)":  {"symbol": "1HZ100V",  "min_range": 5.0,  "emoji": "🔴", "spike_filter": False},
-    "BOOM300":   {"symbol": "BOOM300N",  "min_range": 5.0,  "emoji": "🚀", "spike_filter": True},
-    "BOOM500":   {"symbol": "BOOM500",   "min_range": 5.0,  "emoji": "🚀", "spike_filter": True},
-    "BOOM600":   {"symbol": "BOOM600",   "min_range": 5.0,  "emoji": "🚀", "spike_filter": True},
-    "BOOM900":   {"symbol": "BOOM900",   "min_range": 5.0,  "emoji": "🚀", "spike_filter": True},
-    "BOOM1000":  {"symbol": "BOOM1000",  "min_range": 5.0,  "emoji": "🚀", "spike_filter": True},
-    "CRASH300":  {"symbol": "CRASH300N", "min_range": 5.0,  "emoji": "💥", "spike_filter": True},
-    "CRASH500":  {"symbol": "CRASH500",  "min_range": 5.0,  "emoji": "💥", "spike_filter": True},
-    "CRASH600":  {"symbol": "CRASH600",  "min_range": 5.0,  "emoji": "💥", "spike_filter": True},
-    "CRASH900":  {"symbol": "CRASH900",  "min_range": 5.0,  "emoji": "💥", "spike_filter": True},
-    "CRASH1000": {"symbol": "CRASH1000", "min_range": 5.0,  "emoji": "💥", "spike_filter": True},
-    "J10":       {"symbol": "JD10",      "min_range": 1.0,  "emoji": "⚡", "spike_filter": True},
-    "J25":       {"symbol": "JD25",      "min_range": 2.0,  "emoji": "⚡", "spike_filter": True},
-    "J50":       {"symbol": "JD50",      "min_range": 3.0,  "emoji": "⚡", "spike_filter": True},
-    "J75":       {"symbol": "JD75",      "min_range": 4.0,  "emoji": "⚡", "spike_filter": True},
-    "J100":      {"symbol": "JD100",     "min_range": 5.0,  "emoji": "⚡", "spike_filter": True},
-    "STEP":      {"symbol": "stpindx",   "min_range": 0.1,  "emoji": "📶", "spike_filter": False},
+    "US30":    {"symbol": "DJI",      "sessions": ["ny"],           "min_range": 100.0},
 }
 
 FIB_LEVELS = [0.786]
@@ -87,43 +58,6 @@ def get_candles_td(symbol, interval, outputsize=60):
     except Exception as e:
         log.error(f"TD: {e}")
         return None
-
-def get_deriv_candles(symbol, granularity=300, count=60):
-    if not DERIV_TOKEN:
-        return None
-    try:
-        ws = websocket.create_connection("wss://ws.derivws.com/websockets/v3?app_id=1089", timeout=15)
-        ws.send(json.dumps({"authorize": DERIV_TOKEN}))
-        auth = json.loads(ws.recv())
-        if auth.get("error"):
-            ws.close()
-            return None
-        ws.send(json.dumps({"ticks_history": symbol, "adjust_start_time": 1, "count": count, "end": "latest", "granularity": granularity, "style": "candles"}))
-        resp = json.loads(ws.recv())
-        ws.close()
-        if resp.get("error"):
-            log.error(f"Deriv {symbol}: {resp['error']['message']}")
-            return None
-        result = []
-        for c in reversed(resp.get("candles", [])):
-            result.append({"open": float(c["open"]), "high": float(c["high"]), "low": float(c["low"]), "close": float(c["close"])})
-        return result if result else None
-    except Exception as e:
-        log.error(f"Deriv WS {symbol}: {e}")
-        return None
-
-def filter_spikes(candles, multiplier=3.0):
-    if not candles or len(candles) < 5:
-        return candles
-    ranges = [abs(c["high"] - c["low"]) for c in candles]
-    avg_range = sum(ranges) / len(ranges)
-    filtered = []
-    for c in candles:
-        rng = abs(c["high"] - c["low"])
-        if rng > avg_range * multiplier:
-            c = {"open": c["open"], "high": max(c["open"], c["close"]), "low": min(c["open"], c["close"]), "close": c["close"]}
-        filtered.append(c)
-    return filtered
 
 def get_session_info():
     now = datetime.now(timezone.utc)
@@ -252,11 +186,11 @@ def format_signal(s, sess):
 └ TP2: <code>{s['tp2']}</code> ✅ R:R 1:{s['rr2']}
 
 ⚠️ <i>Confirme avant d'entrer. Max 1% risque.</i>
-🤖 Bot v5 · XAU+NAS+BTC+Synthetics"""
+🤖 Bot v5 · XAU+NAS+BTC+US30"""
 
 def main():
     log.info("Bot v5 start")
-    send_telegram("🤖 <b>Multi-Asset Bot v5</b>\n🥇 XAU/USD — London + NY\n💻 NAS100 — NY\n₿ BTC/USD — 24h/24\n🔵 V10/V25/V50/V75/V100\n🔵 V10(1s)/V25(1s)/V50(1s)/V75(1s)/V100(1s)\n🚀 BOOM 300/500/600/900/1000\n💥 CRASH 300/500/600/900/1000\n⚡ J10/J25/J50/J75/J100\n📶 Step Index\n🔍 Zone 78.6% + FVG + OB\n⏱ Scan toutes les 5 min")
+    send_telegram("🤖 <b>Multi-Asset Bot v5</b>\n🥇 XAU/USD — London + NY\n💻 NAS100 — NY\n₿ BTC/USD — 24h/24\n📈 US30 — NY\n🔍 Zone 78.6% + FVG + OB\n⏱ Scan toutes les 5 min")
     while True:
         try:
             sess = get_session_info()
@@ -271,28 +205,13 @@ def main():
                 h4 = get_candles_td(cfg["symbol"], "4h", 20)
                 if not m5: continue
                 price = m5[0]["close"]
-                emoji = "🥇" if asset_name == "XAU/USD" else ("💻" if asset_name == "NAS100" else "₿")
+                if asset_name == "XAU/USD": emoji = "🥇"
+                elif asset_name == "NAS100": emoji = "💻"
+                elif asset_name == "BTC/USD": emoji = "₿"
+                else: emoji = "📈"
                 setup = detect_setup(asset_name, price, m5, h1 or [], h4 or [], cfg["min_range"], emoji)
                 if setup:
                     send_telegram(format_signal(setup, sess))
-                time.sleep(2)
-            for asset_name, cfg in DERIV_ASSETS.items():
-                log.info(f"Analyse {asset_name}")
-                m5 = get_deriv_candles(cfg["symbol"], 300, 60)
-                time.sleep(1)
-                h1 = get_deriv_candles(cfg["symbol"], 3600, 24)
-                time.sleep(1)
-                h4 = get_deriv_candles(cfg["symbol"], 14400, 20)
-                if not m5: continue
-                if cfg["spike_filter"]:
-                    m5 = filter_spikes(m5)
-                    if h1: h1 = filter_spikes(h1)
-                price = m5[0]["close"]
-                log.info(f"{asset_name}: {price:.4f}")
-                setup = detect_setup(asset_name, price, m5, h1 or [], h4 or [], cfg["min_range"], cfg["emoji"])
-                if setup:
-                    synth_sess = {"time_gmt": sess["time_gmt"], "sessions": "24h/24 🎰", "killzone": None}
-                    send_telegram(format_signal(setup, synth_sess))
                 time.sleep(2)
         except Exception as e:
             log.error(f"Erreur: {e}")
