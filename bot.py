@@ -2,6 +2,7 @@
 Multi-Asset Signal Bot v5
 XAU/USD + XAG/USD + NAS100 + US30
 Zone 78.6% + FVG + OB
+SL sous/sur Swing High/Low
 """
 import os
 import time
@@ -27,6 +28,7 @@ TD_ASSETS = {
 FIB_LEVELS = [0.786]
 FIB_LABELS = {0.786: "78.6%"}
 TOLERANCE_PCT = 0.50
+SL_BUFFER_PCT = 0.002
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger(__name__)
@@ -133,6 +135,7 @@ def detect_setup(asset_name, price, m5, h1, h4, min_range, emoji="📊"):
         direction = "bull" if m5[0]["close"] > m5[-1]["close"] else "bear"
     h1s = get_structure(h1) if h1 else "neutral"
     tol = rng * TOLERANCE_PCT / 100
+    buffer = rng * SL_BUFFER_PCT
     for ratio in FIB_LEVELS:
         level = round(high - rng * ratio, 4) if direction == "bull" else round(low + rng * ratio, 4)
         if abs(price - level) > tol: continue
@@ -143,13 +146,21 @@ def detect_setup(asset_name, price, m5, h1, h4, min_range, emoji="📊"):
         fvgs = detect_fvg(m5, direction, zh, zl)
         obs = detect_ob(m5, direction, zh, zl)
         conf = (1 if fvgs else 0) + (1 if obs else 0)
-        sd, t1d, t2d = rng*0.05, rng*0.382, rng*0.618
+        t1d, t2d = rng*0.382, rng*0.618
         if direction == "bull":
-            sl, tp1, tp2, bias, sig_emoji = round(level-sd,4), round(level+t1d,4), round(level+t2d,4), "BUY", "🟢"
+            sl = round(low - buffer, 4)
+            tp1, tp2 = round(level+t1d,4), round(level+t2d,4)
+            bias, sig_emoji = "BUY", "🟢"
         else:
-            sl, tp1, tp2, bias, sig_emoji = round(level+sd,4), round(level-t1d,4), round(level-t2d,4), "SELL", "🔴"
+            sl = round(high + buffer, 4)
+            tp1, tp2 = round(level-t1d,4), round(level-t2d,4)
+            bias, sig_emoji = "SELL", "🔴"
+        sl_dist = abs(level - sl)
+        if sl_dist == 0: continue
+        rr1 = round(abs(tp1 - level) / sl_dist, 1)
+        rr2 = round(abs(tp2 - level) / sl_dist, 1)
         last_signal[key] = price
-        return {"asset": asset_name, "asset_emoji": emoji, "direction": direction, "bias": bias, "emoji": sig_emoji, "fib_label": FIB_LABELS[ratio], "price": round(price,4), "entry": round(level,4), "sl": sl, "tp1": tp1, "tp2": tp2, "rr1": round(t1d/sd,1), "rr2": round(t2d/sd,1), "swing_high": round(high,4), "swing_low": round(low,4), "h4": direction.upper(), "h1": h1s.upper(), "fvgs": fvgs, "obs": obs, "conf": conf, "zh": round(zh,4), "zl": round(zl,4)}
+        return {"asset": asset_name, "asset_emoji": emoji, "direction": direction, "bias": bias, "emoji": sig_emoji, "fib_label": FIB_LABELS[ratio], "price": round(price,4), "entry": round(level,4), "sl": sl, "tp1": tp1, "tp2": tp2, "rr1": rr1, "rr2": rr2, "swing_high": round(high,4), "swing_low": round(low,4), "h4": direction.upper(), "h1": h1s.upper(), "fvgs": fvgs, "obs": obs, "conf": conf, "zh": round(zh,4), "zl": round(zl,4)}
     return None
 
 def format_signal(s, sess):
@@ -159,6 +170,7 @@ def format_signal(s, sess):
     cl = {0: "Signal simple", 1: "Bonne confluence", 2: "Confluence maximale ✅"}.get(s["conf"], "")
     fvg_txt = f"\n├ {s['fvgs'][-1]['type']}: <code>{s['fvgs'][-1]['bot']}</code>–<code>{s['fvgs'][-1]['top']}</code>" if s["fvgs"] else ""
     ob_txt = f"\n├ {s['obs'][-1]['type']}: <code>{s['obs'][-1]['bot']}</code>–<code>{s['obs'][-1]['top']}</code>" if s["obs"] else ""
+    sl_note = "sous Swing Low" if s["direction"] == "bull" else "sur Swing High"
     return f"""{s['emoji']} <b>SIGNAL {s['asset']} — {s['bias']}</b> {s['asset_emoji']}
 ━━━━━━━━━━━━━━━━━━━━
 🕐 <b>Heure:</b> {sess['time_gmt']}
@@ -179,7 +191,7 @@ def format_signal(s, sess):
 
 🎯 <b>ORDRE {dl}</b>
 ├ Entrée: <code>{s['entry']}</code>
-├ SL: <code>{s['sl']}</code> 🛑
+├ SL: <code>{s['sl']}</code> 🛑 ({sl_note})
 ├ TP1: <code>{s['tp1']}</code> ✅ R:R 1:{s['rr1']}
 └ TP2: <code>{s['tp2']}</code> ✅ R:R 1:{s['rr2']}
 
@@ -188,7 +200,7 @@ def format_signal(s, sess):
 
 def main():
     log.info("Bot v5 start")
-    send_telegram("🤖 <b>Multi-Asset Bot v5</b>\n🥇 XAU/USD — London + NY\n🥈 XAG/USD — London + NY\n💻 NAS100 — NY\n📈 US30 — NY\n🔍 Zone 78.6% + FVG + OB\n⏱ Scan toutes les 5 min")
+    send_telegram("🤖 <b>Multi-Asset Bot v5</b>\n🥇 XAU/USD — London + NY\n🥈 XAG/USD — London + NY\n💻 NAS100 — NY\n📈 US30 — NY\n🔍 Zone 78.6% + FVG + OB\n🛑 SL sous/sur Swing High/Low\n⏱ Scan toutes les 5 min")
     while True:
         try:
             sess = get_session_info()
