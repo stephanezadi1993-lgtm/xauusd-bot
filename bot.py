@@ -1,6 +1,6 @@
 """
 Multi-Asset Signal Bot v5
-XAU/USD + XAG/USD + NAS100 + US30
+XAU/USD + XAG/USD
 Zone 78.6% + FVG + OB
 SL sous/sur Swing High/Low
 """
@@ -15,14 +15,12 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "300"))
+CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "600"))
 TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
 
 TD_ASSETS = {
     "XAU/USD": {"symbol": "XAU/USD", "sessions": ["london", "ny"], "min_range": 3.0},
     "XAG/USD": {"symbol": "XAG/USD", "sessions": ["london", "ny"], "min_range": 0.3},
-    "NAS100":  {"symbol": "NDX",      "sessions": ["ny"],           "min_range": 50.0},
-    "US30":    {"symbol": "DJI",      "sessions": ["ny"],           "min_range": 100.0},
 }
 
 FIB_LEVELS = [0.786]
@@ -72,8 +70,6 @@ def get_session_info():
     return {"active": active, "sessions": " + ".join(labels[s] for s in active) if active else "Asia", "killzone": kz, "time_gmt": now.strftime("%H:%M GMT")}
 
 def is_market_open(sessions, session_info):
-    if "24h" in sessions:
-        return True
     return any(s in session_info["active"] for s in sessions)
 
 def detect_swing(candles, min_range):
@@ -196,11 +192,11 @@ def format_signal(s, sess):
 └ TP2: <code>{s['tp2']}</code> ✅ R:R 1:{s['rr2']}
 
 ⚠️ <i>Confirme avant d'entrer. Max 1% risque.</i>
-🤖 Bot v5 · XAU+XAG+NAS+US30"""
+🤖 Bot v5 · XAU+XAG"""
 
 def main():
     log.info("Bot v5 start")
-    send_telegram("🤖 <b>Multi-Asset Bot v5</b>\n🥇 XAU/USD — London + NY\n🥈 XAG/USD — London + NY\n💻 NAS100 — NY\n📈 US30 — NY\n🔍 Zone 78.6% + FVG + OB\n🛑 SL sous/sur Swing High/Low\n⏱ Scan toutes les 5 min")
+    send_telegram("🤖 <b>Multi-Asset Bot v5</b>\n🥇 XAU/USD — London + NY\n🥈 XAG/USD — London + NY\n🔍 Zone 78.6% + FVG + OB\n🛑 SL sous/sur Swing High/Low\n⏱ Scan toutes les 10 min")
     while True:
         try:
             sess = get_session_info()
@@ -209,20 +205,17 @@ def main():
                 if not is_market_open(cfg["sessions"], sess):
                     continue
                 m5 = get_candles_td(cfg["symbol"], "5min", 60)
-                time.sleep(1)
+                time.sleep(2)
                 h1 = get_candles_td(cfg["symbol"], "1h", 24)
-                time.sleep(1)
+                time.sleep(2)
                 h4 = get_candles_td(cfg["symbol"], "4h", 20)
                 if not m5: continue
                 price = m5[0]["close"]
-                if asset_name == "XAU/USD": emoji = "🥇"
-                elif asset_name == "XAG/USD": emoji = "🥈"
-                elif asset_name == "NAS100": emoji = "💻"
-                else: emoji = "📈"
+                emoji = "🥇" if asset_name == "XAU/USD" else "🥈"
                 setup = detect_setup(asset_name, price, m5, h1 or [], h4 or [], cfg["min_range"], emoji)
                 if setup:
                     send_telegram(format_signal(setup, sess))
-                time.sleep(2)
+                time.sleep(3)
         except Exception as e:
             log.error(f"Erreur: {e}")
         time.sleep(CHECK_INTERVAL)
