@@ -1,8 +1,8 @@
 """
-Multi-Asset Signal Bot v5
-XAU/USD uniquement
+XAU/USD Signal Bot
 Zone 78.6% + FVG + OB
 SL sous/sur Swing High/Low
+Suivi TP/SL en temps réel
 """
 import os
 import time
@@ -30,6 +30,7 @@ SL_BUFFER_PCT = 0.002
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger(__name__)
 last_signal = {}
+active_signals = {}
 
 def send_telegram(message):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
@@ -54,6 +55,14 @@ def get_candles_td(symbol, interval, outputsize=60):
         return [{"open": float(c["open"]), "high": float(c["high"]), "low": float(c["low"]), "close": float(c["close"])} for c in data.get("values", [])]
     except Exception as e:
         log.error(f"TD: {e}")
+        return None
+
+def get_current_price():
+    try:
+        r = requests.get("https://api.twelvedata.com/price", params={"symbol": "XAU/USD", "apikey": TWELVE_API_KEY}, timeout=10)
+        data = r.json()
+        return float(data["price"]) if "price" in data else None
+    except Exception:
         return None
 
 def get_session_info():
@@ -193,13 +202,55 @@ def format_signal(s, sess):
 ⚠️ <i>Confirme avant d'entrer. Max 1% risque.</i>
 🤖 XAU/USD Bot · Zone 78.6%"""
 
+def check_active_signals():
+    global active_signals
+    if not active_signals:
+        return
+    price = get_current_price()
+    if not price:
+        return
+    now = datetime.now(timezone.utc).strftime("%H:%M GMT")
+    to_remove = []
+    for key, sig in list(active_signals.items()):
+        direction = sig["direction"]
+        tp1, tp2, sl = sig["tp1"], sig["tp2"], sig["sl"]
+        result = None
+        if direction == "bull":
+            if price >= tp2: result = ("🚀", "TP2 ATTEINT")
+            elif price >= tp1 and not sig.get("tp1_hit"): result = ("✅", "TP1 ATTEINT")
+            elif price <= sl: result = ("❌", "SL TOUCHÉ")
+        else:
+            if price <= tp2: result = ("🚀", "TP2 ATTEINT")
+            elif price <= tp1 and not sig.get("tp1_hit"): result = ("✅", "TP1 ATTEINT")
+            elif price >= sl: result = ("❌", "SL TOUCHÉ")
+        if result:
+            emoji, label = result
+            if label == "TP1 ATTEINT":
+                active_signals[key]["tp1_hit"] = True
+            msg = f"""{emoji} <b>Suivi XAU/USD — {label}</b>
+━━━━━━━━━━━━━━━━━━━━
+🕐 <b>Heure:</b> {now}
+💰 <b>Prix actuel:</b> <code>{price:.2f}</code>
+📥 <b>Entrée:</b> <code>{sig['entry']}</code>
+🛑 <b>SL:</b> <code>{sl}</code>
+✅ <b>TP1:</b> <code>{tp1}</code>
+🚀 <b>TP2:</b> <code>{tp2}</code>
+━━━━━━━━━━━━━━━━━━━━"""
+            send_telegram(msg)
+            log.info(f"Suivi XAU/USD → {label}")
+            if label in ("TP2 ATTEINT", "SL TOUCHÉ"):
+                to_remove.append(key)
+    for key in to_remove:
+        active_signals.pop(key, None)
+
 def main():
     log.info("Bot start")
-    send_telegram("🤖 <b>XAU/USD Signal Bot</b>\n🥇 XAU/USD — London + NY\n🔍 Zone 78.6% + FVG + OB\n🛑 SL sous/sur Swing High/Low\n⏱ Scan toutes les 5 min")
+    send_telegram("🤖 <b>XAU/USD Signal Bot</b>\n🥇 XAU/USD — London + NY\n🔍 Zone 78.6% + FVG + OB\n🛑 SL sous/sur Swing High/Low\n📬 Suivi TP/SL automatique\n⏱ Scan toutes les 5 min")
     while True:
         try:
             sess = get_session_info()
             log.info(f"Scan {sess['time_gmt']}")
+            check_active_signals()
             for asset_name, cfg in TD_ASSETS.items():
                 if not is_market_open(cfg["sessions"], sess):
                     continue
@@ -213,6 +264,8 @@ def main():
                 setup = detect_setup(asset_name, price, m5, h1 or [], h4 or [], cfg["min_range"], "🥇")
                 if setup:
                     send_telegram(format_signal(setup, sess))
+                    active_signals[f"{asset_name}_{setup['fib_label']}"] = setup
+                    log.info(f"Signal XAU/USD {setup['bias']}")
                 time.sleep(2)
         except Exception as e:
             log.error(f"Erreur: {e}")
