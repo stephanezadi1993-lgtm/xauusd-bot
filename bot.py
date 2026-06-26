@@ -1,6 +1,6 @@
 """
 Multi-Asset Signal Bot v5
-XAU/USD + XAG/USD
+XAU/USD uniquement
 Zone 78.6% + FVG + OB
 SL sous/sur Swing High/Low
 """
@@ -15,12 +15,11 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "600"))
+CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "300"))
 TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
 
 TD_ASSETS = {
     "XAU/USD": {"symbol": "XAU/USD", "sessions": ["london", "ny"], "min_range": 3.0},
-    "XAG/USD": {"symbol": "XAG/USD", "sessions": ["london", "ny"], "min_range": 0.3},
 }
 
 FIB_LEVELS = [0.786]
@@ -192,11 +191,11 @@ def format_signal(s, sess):
 └ TP2: <code>{s['tp2']}</code> ✅ R:R 1:{s['rr2']}
 
 ⚠️ <i>Confirme avant d'entrer. Max 1% risque.</i>
-🤖 Bot v5 · XAU+XAG"""
+🤖 XAU/USD Bot · Zone 78.6%"""
 
 def main():
-    log.info("Bot v5 start")
-    send_telegram("🤖 <b>Multi-Asset Bot v5</b>\n🥇 XAU/USD — London + NY\n🥈 XAG/USD — London + NY\n🔍 Zone 78.6% + FVG + OB\n🛑 SL sous/sur Swing High/Low\n⏱ Scan toutes les 10 min")
+    log.info("Bot start")
+    send_telegram("🤖 <b>XAU/USD Signal Bot</b>\n🥇 XAU/USD — London + NY\n🔍 Zone 78.6% + FVG + OB\n🛑 SL sous/sur Swing High/Low\n⏱ Scan toutes les 5 min")
     while True:
         try:
             sess = get_session_info()
@@ -211,11 +210,10 @@ def main():
                 h4 = get_candles_td(cfg["symbol"], "4h", 20)
                 if not m5: continue
                 price = m5[0]["close"]
-                emoji = "🥇" if asset_name == "XAU/USD" else "🥈"
-                setup = detect_setup(asset_name, price, m5, h1 or [], h4 or [], cfg["min_range"], emoji)
+                setup = detect_setup(asset_name, price, m5, h1 or [], h4 or [], cfg["min_range"], "🥇")
                 if setup:
                     send_telegram(format_signal(setup, sess))
-                time.sleep(3)
+                time.sleep(2)
         except Exception as e:
             log.error(f"Erreur: {e}")
         time.sleep(CHECK_INTERVAL)
