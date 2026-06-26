@@ -2,7 +2,8 @@
 XAU/USD Signal Bot
 Zone 78.6% + FVG + OB
 SL sous/sur Swing High/Low
-Suivi TP/SL en temps réel
+Suivi TP/SL + Alerte Breakeven
+Confluence minimum 1 requis
 """
 import os
 import time
@@ -150,6 +151,8 @@ def detect_setup(asset_name, price, m5, h1, h4, min_range, emoji="📊"):
         fvgs = detect_fvg(m5, direction, zh, zl)
         obs = detect_ob(m5, direction, zh, zl)
         conf = (1 if fvgs else 0) + (1 if obs else 0)
+        if conf == 0:
+            continue
         t1d, t2d = rng*0.382, rng*0.618
         if direction == "bull":
             sl = round(low - buffer, 4)
@@ -163,15 +166,16 @@ def detect_setup(asset_name, price, m5, h1, h4, min_range, emoji="📊"):
         if sl_dist == 0: continue
         rr1 = round(abs(tp1 - level) / sl_dist, 1)
         rr2 = round(abs(tp2 - level) / sl_dist, 1)
+        be_level = round((level + tp1) / 2, 4)
         last_signal[key] = price
-        return {"asset": asset_name, "asset_emoji": emoji, "direction": direction, "bias": bias, "emoji": sig_emoji, "fib_label": FIB_LABELS[ratio], "price": round(price,4), "entry": round(level,4), "sl": sl, "tp1": tp1, "tp2": tp2, "rr1": rr1, "rr2": rr2, "swing_high": round(high,4), "swing_low": round(low,4), "h4": direction.upper(), "h1": h1s.upper(), "fvgs": fvgs, "obs": obs, "conf": conf, "zh": round(zh,4), "zl": round(zl,4)}
+        return {"asset": asset_name, "asset_emoji": emoji, "direction": direction, "bias": bias, "emoji": sig_emoji, "fib_label": FIB_LABELS[ratio], "price": round(price,4), "entry": round(level,4), "sl": sl, "tp1": tp1, "tp2": tp2, "rr1": rr1, "rr2": rr2, "swing_high": round(high,4), "swing_low": round(low,4), "h4": direction.upper(), "h1": h1s.upper(), "fvgs": fvgs, "obs": obs, "conf": conf, "zh": round(zh,4), "zl": round(zl,4), "be_level": be_level}
     return None
 
 def format_signal(s, sess):
     kz = f"\n⚡ <b>Killzone:</b> {sess['killzone']}" if sess.get("killzone") else ""
     dl = "LONG" if s["direction"] == "bull" else "SHORT"
     stars = "⭐" * s["conf"] if s["conf"] > 0 else "—"
-    cl = {0: "Signal simple", 1: "Bonne confluence", 2: "Confluence maximale ✅"}.get(s["conf"], "")
+    cl = {1: "Bonne confluence ⭐", 2: "Confluence maximale ✅"}.get(s["conf"], "")
     fvg_txt = f"\n├ {s['fvgs'][-1]['type']}: <code>{s['fvgs'][-1]['bot']}</code>–<code>{s['fvgs'][-1]['top']}</code>" if s["fvgs"] else ""
     ob_txt = f"\n├ {s['obs'][-1]['type']}: <code>{s['obs'][-1]['bot']}</code>–<code>{s['obs'][-1]['top']}</code>" if s["obs"] else ""
     sl_note = "sous Swing Low" if s["direction"] == "bull" else "sur Swing High"
@@ -196,6 +200,7 @@ def format_signal(s, sess):
 🎯 <b>ORDRE {dl}</b>
 ├ Entrée: <code>{s['entry']}</code>
 ├ SL: <code>{s['sl']}</code> 🛑 ({sl_note})
+├ Breakeven à: <code>{s['be_level']}</code> ⚖️
 ├ TP1: <code>{s['tp1']}</code> ✅ R:R 1:{s['rr1']}
 └ TP2: <code>{s['tp2']}</code> ✅ R:R 1:{s['rr2']}
 
@@ -214,6 +219,21 @@ def check_active_signals():
     for key, sig in list(active_signals.items()):
         direction = sig["direction"]
         tp1, tp2, sl = sig["tp1"], sig["tp2"], sig["sl"]
+        entry = sig["entry"]
+        be_level = sig["be_level"]
+        if not sig.get("be_hit"):
+            if (direction == "bull" and price >= be_level) or (direction == "bear" and price <= be_level):
+                send_telegram(f"""⚖️ <b>BREAKEVEN — XAU/USD</b>
+━━━━━━━━━━━━━━━━━━━━
+🕐 <b>Heure:</b> {now}
+💰 <b>Prix actuel:</b> <code>{price:.2f}</code>
+📥 <b>Entrée:</b> <code>{entry}</code>
+
+🔔 <b>Place ton SL à l'entrée !</b>
+SL → <code>{entry}</code> (Breakeven)
+━━━━━━━━━━━━━━━━━━━━""")
+                active_signals[key]["be_hit"] = True
+                log.info("Alerte Breakeven envoyée")
         result = None
         if direction == "bull":
             if price >= tp2: result = ("🚀", "TP2 ATTEINT")
@@ -231,7 +251,7 @@ def check_active_signals():
 ━━━━━━━━━━━━━━━━━━━━
 🕐 <b>Heure:</b> {now}
 💰 <b>Prix actuel:</b> <code>{price:.2f}</code>
-📥 <b>Entrée:</b> <code>{sig['entry']}</code>
+📥 <b>Entrée:</b> <code>{entry}</code>
 🛑 <b>SL:</b> <code>{sl}</code>
 ✅ <b>TP1:</b> <code>{tp1}</code>
 🚀 <b>TP2:</b> <code>{tp2}</code>
@@ -245,7 +265,7 @@ def check_active_signals():
 
 def main():
     log.info("Bot start")
-    send_telegram("🤖 <b>XAU/USD Signal Bot</b>\n🥇 XAU/USD — London + NY\n🔍 Zone 78.6% + FVG + OB\n🛑 SL sous/sur Swing High/Low\n📬 Suivi TP/SL automatique\n⏱ Scan toutes les 5 min")
+    send_telegram("🤖 <b>XAU/USD Signal Bot</b>\n🥇 XAU/USD — London + NY\n🔍 Zone 78.6% + FVG + OB\n🛑 SL sous/sur Swing High/Low\n⚖️ Alerte Breakeven automatique\n📬 Suivi TP/SL automatique\n⭐ Confluence minimum requise\n⏱ Scan toutes les 5 min")
     while True:
         try:
             sess = get_session_info()
