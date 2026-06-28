@@ -1,8 +1,9 @@
 """
-XAU/USD + BTC/USD Signal Bot
+XAU/USD Signal Bot
 Zone 78.6% + FVG + OB
 SL sous/sur Swing High/Low
 Suivi TP/SL + Alerte Breakeven
+Confluence minimum 1 requis
 """
 import os
 import time
@@ -19,8 +20,7 @@ CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "300"))
 TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
 
 TD_ASSETS = {
-    "XAU/USD": {"symbol": "XAU/USD", "sessions": ["london", "ny"], "min_range": 3.0,   "interval": 300},
-    "BTC/USD": {"symbol": "BTC/USD", "sessions": ["24h"],           "min_range": 200.0, "interval": 900},
+    "XAU/USD": {"symbol": "XAU/USD", "sessions": ["london", "ny"], "min_range": 3.0},
 }
 
 FIB_LEVELS = [0.786]
@@ -32,7 +32,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger(__name__)
 last_signal = {}
 active_signals = {}
-last_scan = {}
 
 def send_telegram(message):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
@@ -59,9 +58,9 @@ def get_candles_td(symbol, interval, outputsize=60):
         log.error(f"TD: {e}")
         return None
 
-def get_current_price(symbol):
+def get_current_price():
     try:
-        r = requests.get("https://api.twelvedata.com/price", params={"symbol": symbol, "apikey": TWELVE_API_KEY}, timeout=10)
+        r = requests.get("https://api.twelvedata.com/price", params={"symbol": "XAU/USD", "apikey": TWELVE_API_KEY}, timeout=10)
         data = r.json()
         return float(data["price"]) if "price" in data else None
     except Exception:
@@ -80,17 +79,7 @@ def get_session_info():
     return {"active": active, "sessions": " + ".join(labels[s] for s in active) if active else "Asia", "killzone": kz, "time_gmt": now.strftime("%H:%M GMT")}
 
 def is_market_open(sessions, session_info):
-    if "24h" in sessions:
-        return True
     return any(s in session_info["active"] for s in sessions)
-
-def should_scan(asset_name, interval_seconds):
-    now = time.time()
-    last = last_scan.get(asset_name, 0)
-    if now - last >= interval_seconds:
-        last_scan[asset_name] = now
-        return True
-    return False
 
 def detect_swing(candles, min_range):
     if len(candles) < 10: return None
@@ -216,25 +205,25 @@ def format_signal(s, sess):
 └ TP2: <code>{s['tp2']}</code> ✅ R:R 1:{s['rr2']}
 
 ⚠️ <i>Confirme avant d'entrer. Max 1% risque.</i>
-🤖 Signal Bot · Zone 78.6%"""
+🤖 XAU/USD Bot · Zone 78.6%"""
 
 def check_active_signals():
     global active_signals
     if not active_signals:
         return
+    price = get_current_price()
+    if not price:
+        return
     now = datetime.now(timezone.utc).strftime("%H:%M GMT")
     to_remove = []
     for key, sig in list(active_signals.items()):
-        price = get_current_price(sig["asset"])
-        if not price:
-            continue
         direction = sig["direction"]
         tp1, tp2, sl = sig["tp1"], sig["tp2"], sig["sl"]
         entry = sig["entry"]
         be_level = sig["be_level"]
         if not sig.get("be_hit"):
             if (direction == "bull" and price >= be_level) or (direction == "bear" and price <= be_level):
-                send_telegram(f"""⚖️ <b>BREAKEVEN — {sig['asset']}</b>
+                send_telegram(f"""⚖️ <b>BREAKEVEN — XAU/USD</b>
 ━━━━━━━━━━━━━━━━━━━━
 🕐 <b>Heure:</b> {now}
 💰 <b>Prix actuel:</b> <code>{price:.2f}</code>
@@ -244,6 +233,7 @@ def check_active_signals():
 SL → <code>{entry}</code> (Breakeven)
 ━━━━━━━━━━━━━━━━━━━━""")
                 active_signals[key]["be_hit"] = True
+                log.info("Alerte Breakeven envoyée")
         result = None
         if direction == "bull":
             if price >= tp2: result = ("🚀", "TP2 ATTEINT")
@@ -257,7 +247,7 @@ SL → <code>{entry}</code> (Breakeven)
             emoji, label = result
             if label == "TP1 ATTEINT":
                 active_signals[key]["tp1_hit"] = True
-            msg = f"""{emoji} <b>Suivi {sig['asset']} — {label}</b>
+            msg = f"""{emoji} <b>Suivi XAU/USD — {label}</b>
 ━━━━━━━━━━━━━━━━━━━━
 🕐 <b>Heure:</b> {now}
 💰 <b>Prix actuel:</b> <code>{price:.2f}</code>
@@ -267,6 +257,7 @@ SL → <code>{entry}</code> (Breakeven)
 🚀 <b>TP2:</b> <code>{tp2}</code>
 ━━━━━━━━━━━━━━━━━━━━"""
             send_telegram(msg)
+            log.info(f"Suivi XAU/USD → {label}")
             if label in ("TP2 ATTEINT", "SL TOUCHÉ"):
                 to_remove.append(key)
     for key in to_remove:
@@ -274,7 +265,7 @@ SL → <code>{entry}</code> (Breakeven)
 
 def main():
     log.info("Bot start")
-    send_telegram("🤖 <b>Signal Bot</b>\n🥇 XAU/USD — London + NY (5 min)\n₿ BTC/USD — 24h/24 (15 min)\n🔍 Zone 78.6% + FVG + OB\n🛑 SL sous/sur Swing High/Low\n⚖️ Alerte Breakeven\n📬 Suivi TP/SL automatique")
+    send_telegram("🤖 <b>XAU/USD Signal Bot</b>\n🥇 XAU/USD — London + NY\n🔍 Zone 78.6% + FVG + OB\n🛑 SL sous/sur Swing High/Low\n⚖️ Alerte Breakeven automatique\n📬 Suivi TP/SL automatique\n⭐ Confluence minimum requise\n⏱ Scan toutes les 5 min")
     while True:
         try:
             sess = get_session_info()
@@ -283,9 +274,6 @@ def main():
             for asset_name, cfg in TD_ASSETS.items():
                 if not is_market_open(cfg["sessions"], sess):
                     continue
-                if not should_scan(asset_name, cfg["interval"]):
-                    log.info(f"{asset_name} — pas encore l'heure")
-                    continue
                 m5 = get_candles_td(cfg["symbol"], "5min", 60)
                 time.sleep(2)
                 h1 = get_candles_td(cfg["symbol"], "1h", 24)
@@ -293,12 +281,11 @@ def main():
                 h4 = get_candles_td(cfg["symbol"], "4h", 20)
                 if not m5: continue
                 price = m5[0]["close"]
-                emoji = "🥇" if asset_name == "XAU/USD" else "₿"
-                setup = detect_setup(asset_name, price, m5, h1 or [], h4 or [], cfg["min_range"], emoji)
+                setup = detect_setup(asset_name, price, m5, h1 or [], h4 or [], cfg["min_range"], "🥇")
                 if setup:
                     send_telegram(format_signal(setup, sess))
                     active_signals[f"{asset_name}_{setup['fib_label']}"] = setup
-                    log.info(f"Signal {asset_name} {setup['bias']}")
+                    log.info(f"Signal XAU/USD {setup['bias']}")
                 time.sleep(2)
         except Exception as e:
             log.error(f"Erreur: {e}")
