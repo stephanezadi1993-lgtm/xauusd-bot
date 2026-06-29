@@ -1,8 +1,9 @@
 """
-XAU/USD Signal Bot
+XAU/USD + XAG/USD Signal Bot
 Zone 78.6% + FVG + OB
 SL sous/sur Swing High/Low
-Suivi TP/SL en temps réel
+Suivi TP/SL + Alerte Breakeven
+Sessions : London + NY
 """
 import os
 import time
@@ -20,6 +21,7 @@ TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
 
 TD_ASSETS = {
     "XAU/USD": {"symbol": "XAU/USD", "sessions": ["london", "ny"], "min_range": 3.0},
+    "XAG/USD": {"symbol": "XAG/USD", "sessions": ["london", "ny"], "min_range": 0.3},
 }
 
 FIB_LEVELS = [0.786]
@@ -57,9 +59,9 @@ def get_candles_td(symbol, interval, outputsize=60):
         log.error(f"TD: {e}")
         return None
 
-def get_current_price():
+def get_current_price(symbol):
     try:
-        r = requests.get("https://api.twelvedata.com/price", params={"symbol": "XAU/USD", "apikey": TWELVE_API_KEY}, timeout=10)
+        r = requests.get("https://api.twelvedata.com/price", params={"symbol": symbol, "apikey": TWELVE_API_KEY}, timeout=10)
         data = r.json()
         return float(data["price"]) if "price" in data else None
     except Exception:
@@ -74,8 +76,8 @@ def get_session_info():
     kz = None
     if 8 <= t < 10: kz = "London Open KZ"
     elif 13 <= t < 15: kz = "New York Open KZ"
-    labels = {"london": "London", "ny": "New York"}
-    return {"active": active, "sessions": " + ".join(labels[s] for s in active) if active else "Asia", "killzone": kz, "time_gmt": now.strftime("%H:%M GMT")}
+    labels = {"london": "London 🇬🇧", "ny": "New York 🗽"}
+    return {"active": active, "sessions": " + ".join(labels[s] for s in active) if active else "Hors session", "killzone": kz, "time_gmt": now.strftime("%H:%M GMT")}
 
 def is_market_open(sessions, session_info):
     return any(s in session_info["active"] for s in sessions)
@@ -150,6 +152,7 @@ def detect_setup(asset_name, price, m5, h1, h4, min_range, emoji="📊"):
         fvgs = detect_fvg(m5, direction, zh, zl)
         obs = detect_ob(m5, direction, zh, zl)
         conf = (1 if fvgs else 0) + (1 if obs else 0)
+        if conf == 0: continue
         t1d, t2d = rng*0.382, rng*0.618
         if direction == "bull":
             sl = round(low - buffer, 4)
@@ -163,15 +166,16 @@ def detect_setup(asset_name, price, m5, h1, h4, min_range, emoji="📊"):
         if sl_dist == 0: continue
         rr1 = round(abs(tp1 - level) / sl_dist, 1)
         rr2 = round(abs(tp2 - level) / sl_dist, 1)
+        be_level = round((level + tp1) / 2, 4)
         last_signal[key] = price
-        return {"asset": asset_name, "asset_emoji": emoji, "direction": direction, "bias": bias, "emoji": sig_emoji, "fib_label": FIB_LABELS[ratio], "price": round(price,4), "entry": round(level,4), "sl": sl, "tp1": tp1, "tp2": tp2, "rr1": rr1, "rr2": rr2, "swing_high": round(high,4), "swing_low": round(low,4), "h4": direction.upper(), "h1": h1s.upper(), "fvgs": fvgs, "obs": obs, "conf": conf, "zh": round(zh,4), "zl": round(zl,4)}
+        return {"asset": asset_name, "asset_emoji": emoji, "direction": direction, "bias": bias, "emoji": sig_emoji, "fib_label": FIB_LABELS[ratio], "price": round(price,4), "entry": round(level,4), "sl": sl, "tp1": tp1, "tp2": tp2, "rr1": rr1, "rr2": rr2, "swing_high": round(high,4), "swing_low": round(low,4), "h4": direction.upper(), "h1": h1s.upper(), "fvgs": fvgs, "obs": obs, "conf": conf, "zh": round(zh,4), "zl": round(zl,4), "be_level": be_level}
     return None
 
 def format_signal(s, sess):
     kz = f"\n⚡ <b>Killzone:</b> {sess['killzone']}" if sess.get("killzone") else ""
     dl = "LONG" if s["direction"] == "bull" else "SHORT"
     stars = "⭐" * s["conf"] if s["conf"] > 0 else "—"
-    cl = {0: "Signal simple", 1: "Bonne confluence", 2: "Confluence maximale ✅"}.get(s["conf"], "")
+    cl = {1: "Bonne confluence ⭐", 2: "Confluence maximale ✅"}.get(s["conf"], "")
     fvg_txt = f"\n├ {s['fvgs'][-1]['type']}: <code>{s['fvgs'][-1]['bot']}</code>–<code>{s['fvgs'][-1]['top']}</code>" if s["fvgs"] else ""
     ob_txt = f"\n├ {s['obs'][-1]['type']}: <code>{s['obs'][-1]['bot']}</code>–<code>{s['obs'][-1]['top']}</code>" if s["obs"] else ""
     sl_note = "sous Swing Low" if s["direction"] == "bull" else "sur Swing High"
@@ -196,24 +200,36 @@ def format_signal(s, sess):
 🎯 <b>ORDRE {dl}</b>
 ├ Entrée: <code>{s['entry']}</code>
 ├ SL: <code>{s['sl']}</code> 🛑 ({sl_note})
+├ Breakeven à: <code>{s['be_level']}</code> ⚖️
 ├ TP1: <code>{s['tp1']}</code> ✅ R:R 1:{s['rr1']}
 └ TP2: <code>{s['tp2']}</code> ✅ R:R 1:{s['rr2']}
 
 ⚠️ <i>Confirme avant d'entrer. Max 1% risque.</i>
-🤖 XAU/USD Bot · Zone 78.6%"""
+🤖 Signal Bot · Zone 78.6%"""
 
 def check_active_signals():
     global active_signals
-    if not active_signals:
-        return
-    price = get_current_price()
-    if not price:
-        return
+    if not active_signals: return
     now = datetime.now(timezone.utc).strftime("%H:%M GMT")
     to_remove = []
     for key, sig in list(active_signals.items()):
+        price = get_current_price(sig["asset"])
+        if not price: continue
         direction = sig["direction"]
         tp1, tp2, sl = sig["tp1"], sig["tp2"], sig["sl"]
+        entry, be_level = sig["entry"], sig["be_level"]
+        if not sig.get("be_hit"):
+            if (direction == "bull" and price >= be_level) or (direction == "bear" and price <= be_level):
+                send_telegram(f"""⚖️ <b>BREAKEVEN — {sig['asset']}</b>
+━━━━━━━━━━━━━━━━━━━━
+🕐 <b>Heure:</b> {now}
+💰 <b>Prix actuel:</b> <code>{price:.2f}</code>
+📥 <b>Entrée:</b> <code>{entry}</code>
+
+🔔 <b>Place ton SL à l'entrée !</b>
+SL → <code>{entry}</code> (Breakeven)
+━━━━━━━━━━━━━━━━━━━━""")
+                active_signals[key]["be_hit"] = True
         result = None
         if direction == "bull":
             if price >= tp2: result = ("🚀", "TP2 ATTEINT")
@@ -227,17 +243,15 @@ def check_active_signals():
             emoji, label = result
             if label == "TP1 ATTEINT":
                 active_signals[key]["tp1_hit"] = True
-            msg = f"""{emoji} <b>Suivi XAU/USD — {label}</b>
+            send_telegram(f"""{emoji} <b>Suivi {sig['asset']} — {label}</b>
 ━━━━━━━━━━━━━━━━━━━━
 🕐 <b>Heure:</b> {now}
 💰 <b>Prix actuel:</b> <code>{price:.2f}</code>
-📥 <b>Entrée:</b> <code>{sig['entry']}</code>
+📥 <b>Entrée:</b> <code>{entry}</code>
 🛑 <b>SL:</b> <code>{sl}</code>
 ✅ <b>TP1:</b> <code>{tp1}</code>
 🚀 <b>TP2:</b> <code>{tp2}</code>
-━━━━━━━━━━━━━━━━━━━━"""
-            send_telegram(msg)
-            log.info(f"Suivi XAU/USD → {label}")
+━━━━━━━━━━━━━━━━━━━━""")
             if label in ("TP2 ATTEINT", "SL TOUCHÉ"):
                 to_remove.append(key)
     for key in to_remove:
@@ -245,7 +259,7 @@ def check_active_signals():
 
 def main():
     log.info("Bot start")
-    send_telegram("🤖 <b>XAU/USD Signal Bot</b>\n🥇 XAU/USD — London + NY\n🔍 Zone 78.6% + FVG + OB\n🛑 SL sous/sur Swing High/Low\n📬 Suivi TP/SL automatique\n⏱ Scan toutes les 5 min")
+    send_telegram("🤖 <b>Signal Bot</b>\n🥇 XAU/USD — London + NY\n🥈 XAG/USD — London + NY\n🔍 Zone 78.6% + FVG + OB\n🛑 SL sous/sur Swing High/Low\n⚖️ Alerte Breakeven\n📬 Suivi TP/SL automatique\n⏱ Scan toutes les 5 min")
     while True:
         try:
             sess = get_session_info()
@@ -261,11 +275,12 @@ def main():
                 h4 = get_candles_td(cfg["symbol"], "4h", 20)
                 if not m5: continue
                 price = m5[0]["close"]
-                setup = detect_setup(asset_name, price, m5, h1 or [], h4 or [], cfg["min_range"], "🥇")
+                emoji = "🥇" if asset_name == "XAU/USD" else "🥈"
+                setup = detect_setup(asset_name, price, m5, h1 or [], h4 or [], cfg["min_range"], emoji)
                 if setup:
                     send_telegram(format_signal(setup, sess))
                     active_signals[f"{asset_name}_{setup['fib_label']}"] = setup
-                    log.info(f"Signal XAU/USD {setup['bias']}")
+                    log.info(f"Signal {asset_name} {setup['bias']}")
                 time.sleep(2)
         except Exception as e:
             log.error(f"Erreur: {e}")
