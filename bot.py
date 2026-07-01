@@ -21,7 +21,6 @@ TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
 
 TD_ASSETS = {
     "XAU/USD": {"symbol": "XAU/USD", "sessions": ["london", "ny"], "min_range": 3.0},
-    "XAG/USD": {"symbol": "XAG/USD", "sessions": ["london", "ny"], "min_range": 0.3},
 }
 
 FIB_LEVELS = [0.786]
