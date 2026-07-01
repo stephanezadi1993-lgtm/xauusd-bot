@@ -1,5 +1,5 @@
 """
-XAU/USD + XAG/USD Signal Bot
+XAU/USD Signal Bot
 Zone 78.6% + FVG + OB
 SL sous/sur Swing High/Low
 Suivi TP/SL + Alerte Breakeven
