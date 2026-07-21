@@ -3,7 +3,7 @@ XAU/USD Signal Bot
 Zone 78.6% + FVG + OB
 SL sous/sur Swing High/Low
 Suivi TP/SL + Alerte Breakeven
-Sessions : London + NY
+Sessions : Asia + London + NY
 """
 import os
 import time
@@ -20,7 +20,7 @@ CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "300"))
 TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
 
 TD_ASSETS = {
-    "XAU/USD": {"symbol": "XAU/USD", "sessions": ["london", "ny"], "min_range": 3.0},
+    "XAU/USD": {"symbol": "XAU/USD", "sessions": ["asia", "london", "ny"], "min_range": 3.0},
 }
 
 FIB_LEVELS = [0.786]
@@ -32,6 +32,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger(__name__)
 last_signal = {}
 active_signals = {}
+last_scan_time = 0
 
 def send_telegram(message):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
@@ -70,16 +71,22 @@ def get_session_info():
     now = datetime.now(timezone.utc)
     t = now.hour + now.minute / 60
     active = []
+    if 0 <= t < 8:  active.append("asia")
     if 8 <= t < 17: active.append("london")
     if 13 <= t < 22: active.append("ny")
     kz = None
     if 8 <= t < 10: kz = "London Open KZ"
     elif 13 <= t < 15: kz = "New York Open KZ"
-    labels = {"london": "London 🇬🇧", "ny": "New York 🗽"}
+    labels = {"asia": "Asia 🌸", "london": "London 🇬🇧", "ny": "New York 🗽"}
     return {"active": active, "sessions": " + ".join(labels[s] for s in active) if active else "Hors session", "killzone": kz, "time_gmt": now.strftime("%H:%M GMT")}
 
 def is_market_open(sessions, session_info):
     return any(s in session_info["active"] for s in sessions)
+
+def get_scan_interval(session_info):
+    if "asia" in session_info["active"] and "london" not in session_info["active"] and "ny" not in session_info["active"]:
+        return 600  # 10 min pendant Asia
+    return 300  # 5 min pendant London + NY
 
 def detect_swing(candles, min_range):
     if len(candles) < 10: return None
@@ -204,7 +211,7 @@ def format_signal(s, sess):
 └ TP2: <code>{s['tp2']}</code> ✅ R:R 1:{s['rr2']}
 
 ⚠️ <i>Confirme avant d'entrer. Max 1% risque.</i>
-🤖 Signal Bot · Zone 78.6%"""
+🤖 XAU/USD Bot · Zone 78.6%"""
 
 def check_active_signals():
     global active_signals
@@ -257,30 +264,34 @@ SL → <code>{entry}</code> (Breakeven)
         active_signals.pop(key, None)
 
 def main():
+    global last_scan_time
     log.info("Bot start")
-    send_telegram("🤖 <b>Signal Bot</b>\n🥇 XAU/USD — London + NY\n🥈 XAG/USD — London + NY\n🔍 Zone 78.6% + FVG + OB\n🛑 SL sous/sur Swing High/Low\n⚖️ Alerte Breakeven\n📬 Suivi TP/SL automatique\n⏱ Scan toutes les 5 min")
+    send_telegram("🤖 <b>XAU/USD Signal Bot</b>\n🥇 XAU/USD — Asia 🌸 + London 🇬🇧 + NY 🗽\n🔍 Zone 78.6% + FVG + OB\n🛑 SL sous/sur Swing High/Low\n⚖️ Alerte Breakeven\n📬 Suivi TP/SL automatique\n⏱ Asia: 10 min | London+NY: 5 min")
     while True:
         try:
             sess = get_session_info()
-            log.info(f"Scan {sess['time_gmt']}")
+            now = time.time()
+            scan_interval = get_scan_interval(sess)
             check_active_signals()
-            for asset_name, cfg in TD_ASSETS.items():
-                if not is_market_open(cfg["sessions"], sess):
-                    continue
-                m5 = get_candles_td(cfg["symbol"], "5min", 60)
-                time.sleep(2)
-                h1 = get_candles_td(cfg["symbol"], "1h", 24)
-                time.sleep(2)
-                h4 = get_candles_td(cfg["symbol"], "4h", 20)
-                if not m5: continue
-                price = m5[0]["close"]
-                emoji = "🥇" if asset_name == "XAU/USD" else "🥈"
-                setup = detect_setup(asset_name, price, m5, h1 or [], h4 or [], cfg["min_range"], emoji)
-                if setup:
-                    send_telegram(format_signal(setup, sess))
-                    active_signals[f"{asset_name}_{setup['fib_label']}"] = setup
-                    log.info(f"Signal {asset_name} {setup['bias']}")
-                time.sleep(2)
+            if now - last_scan_time >= scan_interval:
+                last_scan_time = now
+                log.info(f"Scan {sess['time_gmt']} — interval {scan_interval//60} min")
+                for asset_name, cfg in TD_ASSETS.items():
+                    if not is_market_open(cfg["sessions"], sess):
+                        continue
+                    m5 = get_candles_td(cfg["symbol"], "5min", 60)
+                    time.sleep(2)
+                    h1 = get_candles_td(cfg["symbol"], "1h", 24)
+                    time.sleep(2)
+                    h4 = get_candles_td(cfg["symbol"], "4h", 20)
+                    if not m5: continue
+                    price = m5[0]["close"]
+                    setup = detect_setup(asset_name, price, m5, h1 or [], h4 or [], cfg["min_range"], "🥇")
+                    if setup:
+                        send_telegram(format_signal(setup, sess))
+                        active_signals[f"{asset_name}_{setup['fib_label']}"] = setup
+                        log.info(f"Signal {asset_name} {setup['bias']}")
+                    time.sleep(2)
         except Exception as e:
             log.error(f"Erreur: {e}")
         time.sleep(CHECK_INTERVAL)
